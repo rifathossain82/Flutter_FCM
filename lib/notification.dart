@@ -1,105 +1,155 @@
-import 'dart:async';
+import 'package:flutter_fcm/recieveNotification.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_native_timezone/flutter_native_timezone.dart';
+import 'package:rxdart/subjects.dart';
+import 'package:timezone/data/latest.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
 
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
+/// notification class for handling notification related logics;
+///
+class NotificationService {
+  static final NotificationService _notificationService =
+  NotificationService._internal();
 
-Future<void> onBackgroundMessage(RemoteMessage message) async {
-  await Firebase.initializeApp();
+  /// initialize flutter local notification plugin
+  final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+  FlutterLocalNotificationsPlugin();
 
-  if (message.data.containsKey('data')) {
-    // Handle data message
-    final data = message.data['data'];
+  /// create stream to add notification class (defined)
+  final BehaviorSubject<ReceivedNotification>
+  didReceiveLocalNotificationSubject =
+  BehaviorSubject<ReceivedNotification>();
+
+  /// create stream to add notification  (defined) ios<10+
+  final BehaviorSubject<String?> selectNotificationSubject =
+  BehaviorSubject<String?>();
+
+  factory NotificationService() {
+    return _notificationService;
   }
 
-  if (message.data.containsKey('notification')) {
-    // Handle notification message
-    final notification = message.data['notification'];
+  NotificationService._internal();
+
+  /// initialize this notification service
+  Future<void> init() async {
+    /// use for schedule notification
+    await _configureLocalTimeZone();
+
+    /// andriod local notification setting
+    const AndroidInitializationSettings initializationSettingsAndroid =
+    AndroidInitializationSettings('@mipmap/ic_launcher');
+
+    /// Note: permissions aren't requested here just to demonstrate that can be
+    /// done later
+    /// ios local notification setting
+    /// [onDidRecieveLocalNotification] handler for clicking notification while in
+    /// app
+    final IOSInitializationSettings initializationSettingsIOS =
+    IOSInitializationSettings(
+      requestAlertPermission: false,
+      requestBadgePermission: false,
+      requestSoundPermission: false,
+      onDidReceiveLocalNotification: _onDidReceiveLocalNotification,
+    );
+
+    final InitializationSettings initializationSettings =
+    InitializationSettings(
+        android: initializationSettingsAndroid,
+        iOS: initializationSettingsIOS
+    );
+
+    /// [onSelectNotification] handler for clicking notification while in
+    /// app ios<10+
+    await flutterLocalNotificationsPlugin.initialize(
+      initializationSettings,
+      onSelectNotification: _onSelectNotification,
+    );
+
+    await checkNotification();
   }
-  // Or do other work.
-}
 
-class FCM {
-  final _firebaseMessaging = FirebaseMessaging.instance;
-
-  final streamCtlr = StreamController<String>.broadcast();
-  final titleCtlr = StreamController<String>.broadcast();
-  final bodyCtlr = StreamController<String>.broadcast();
-
-  setNotifications() {
-    FirebaseMessaging.onBackgroundMessage(onBackgroundMessage);
-
-    // handle when app in active state
-    forgroundNotification();
-
-    // handle when app running in background state
-    backgroundNotification();
-
-    // handle when app completely closed by the user
-    terminateNotification();
-
-    // With this token you can test it easily on your phone
-    final token =
-    _firebaseMessaging.getToken().then((value) => print('Token: $value'));
-  }
-
-  forgroundNotification() {
-    FirebaseMessaging.onMessage.listen(
-          (message) async {
-        if (message.data.containsKey('data')) {
-          // Handle data message
-          streamCtlr.sink.add(message.data['data']);
-        }
-        if (message.data.containsKey('notification')) {
-          // Handle notification message
-          streamCtlr.sink.add(message.data['notification']);
-        }
-        // Or do other work.
-        titleCtlr.sink.add(message.notification!.title!);
-        bodyCtlr.sink.add(message.notification!.body!);
-      },
+  /// add notification to the stream so other page can subscribe it
+  /// and get the notification
+  Future _onDidReceiveLocalNotification(
+      int id,
+      String? title,
+      String? body,
+      String? payload,
+      ) async {
+    didReceiveLocalNotificationSubject.add(
+      ReceivedNotification(
+        id: id,
+        title: title,
+        body: body,
+        payload: payload,
+      ),
     );
   }
 
-  backgroundNotification() {
-    FirebaseMessaging.onMessageOpenedApp.listen(
-          (message) async {
-        if (message.data.containsKey('data')) {
-          // Handle data message
-          streamCtlr.sink.add(message.data['data']);
-        }
-        if (message.data.containsKey('notification')) {
-          // Handle notification message
-          streamCtlr.sink.add(message.data['notification']);
-        }
-        // Or do other work.
-        titleCtlr.sink.add(message.notification!.title!);
-        bodyCtlr.sink.add(message.notification!.body!);
-      },
+  /// add notification to the stream so other page can subscribe it
+  /// and get the notification
+  Future _onSelectNotification(String? payload) async {
+    selectNotificationSubject.add(payload);
+  }
+
+  Future<void> _configureLocalTimeZone() async {
+    tz.initializeTimeZones();
+
+    final String? timeZoneName = await FlutterNativeTimezone.getLocalTimezone();
+
+    tz.setLocalLocation(tz.getLocation(timeZoneName!));
+  }
+
+  Future<void> cancelAllNotifications() async {
+    await flutterLocalNotificationsPlugin.cancelAll();
+  }
+
+  /// notification for prayer timing notification. Called when user request new
+  /// prayer timing from api
+  Future<void> showPrayerNotification(
+      {required int id,
+        required String title,
+        required String body,
+        required Duration duration}) async {
+    /// android customisation notification
+    AndroidNotificationDetails androidPlatformChannelSpecifics =
+    const AndroidNotificationDetails(
+      '1',
+      'Prayer Timing',
+      channelDescription: 'Notification to tell user that it is time for Muslim prayer.',
+      importance: Importance.max,
+      //icon:
+      sound: RawResourceAndroidNotificationSound('slow_spring_board'),
+      // when:
+      ticker: 'Prayer Timing',
+      visibility: NotificationVisibility.public,
+      category: 'reminder',
     );
+
+    /// ios customisation notification
+    IOSNotificationDetails iosPlatformChannelSpecifics =
+    const IOSNotificationDetails(
+      sound: 'slow_spring_board.aiff',
+    );
+
+    NotificationDetails platformChannelSpecifics = NotificationDetails(
+      android: androidPlatformChannelSpecifics,
+      iOS: iosPlatformChannelSpecifics,
+    );
+
+    /// scheduled notification function
+    await flutterLocalNotificationsPlugin.zonedSchedule(id, title, body,
+        tz.TZDateTime.now(tz.local).add(duration), platformChannelSpecifics,
+        uiLocalNotificationDateInterpretation:
+        UILocalNotificationDateInterpretation.absoluteTime,
+        androidAllowWhileIdle: true,
+        matchDateTimeComponents: DateTimeComponents.time,
+        payload: '');
   }
 
-  terminateNotification() async {
-    RemoteMessage? initialMessage =
-    await FirebaseMessaging.instance.getInitialMessage();
-
-    if (initialMessage != null) {
-      if (initialMessage.data.containsKey('data')) {
-        // Handle data message
-        streamCtlr.sink.add(initialMessage.data['data']);
-      }
-      if (initialMessage.data.containsKey('notification')) {
-        // Handle notification message
-        streamCtlr.sink.add(initialMessage.data['notification']);
-      }
-      // Or do other work.
-      titleCtlr.sink.add(initialMessage.notification!.title!);
-      bodyCtlr.sink.add(initialMessage.notification!.body!);
-    }
-  }
-
-  dispose() {
-    streamCtlr.close();
-    bodyCtlr.close();
-    titleCtlr.close();
+  Future<void> checkNotification() async {
+    // final available =
+    // await flutterLocalNotificationsPlugin.pendingNotificationRequests();
+    // print(available.length);
   }
 }
