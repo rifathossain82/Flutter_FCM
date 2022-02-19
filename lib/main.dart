@@ -1,169 +1,81 @@
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
-const AndroidNotificationChannel channel=AndroidNotificationChannel(
-    'high_importance',
-    'High importance notifications',
-    description: 'this channel is used for important notifications.',
-    importance: Importance.high,
-    playSound: true
-);
+import 'notification.dart';
 
-final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin=FlutterLocalNotificationsPlugin();
-
-Future<void> _firebaseMessagingBgHandler(RemoteMessage message)async{
-  await Firebase.initializeApp();
-  print('A big message just showed up: ${message.messageId}');
+void main() async {
+  await init();
+  runApp(const MyApp());
 }
 
-
-
-Future<void> main()async {
+Future init() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
-  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBgHandler);
-
-  await flutterLocalNotificationsPlugin
-      .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-      ?.createNotificationChannel(channel);
-
-  await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
-    alert: true,
-    badge: true,
-    sound: true,
-  );
-
-  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
   const MyApp({Key? key}) : super(key: key);
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-      ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+    return const MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: HomePage(),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({Key? key, required this.title}) : super(key: key);
-
-  final String title;
+class HomePage extends StatefulWidget {
+  const HomePage({Key? key}) : super(key: key);
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  State<HomePage> createState() => _HomePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
-
-  void showNotification() {
-    setState(() {
-      _counter++;
-    });
-    flutterLocalNotificationsPlugin.show(
-        0,
-        'Testing FCM ${_counter}',
-        'Good Morning Dear!',
-        NotificationDetails(
-          android: AndroidNotificationDetails(
-            channel.id,
-            channel.name,
-            channelDescription: channel.description,
-            importance: Importance.high,
-            color: Colors.blue,
-            playSound: true,
-            icon: '@mipmap/ic_launcher'
-          )
-        )
-    );
-  }
+class _HomePageState extends State<HomePage> {
+  String notificationTitle = 'No Title';
+  String notificationBody = 'No Body';
+  String notificationData = 'No Data';
 
   @override
   void initState() {
-    // TODO: implement initState
-    super.initState();
-    FirebaseMessaging.onMessage.listen((RemoteMessage message){
-      RemoteNotification? notification=message.notification;
-      AndroidNotification? android=message.notification!.android;
-      if(notification!=null && android!=null){
-        flutterLocalNotificationsPlugin.show(
-            notification.hashCode,
-            notification.title,
-            notification.body,
-            NotificationDetails(
-              android: AndroidNotificationDetails(
-                  channel.id,
-                  channel.name,
-                  channelDescription: channel.description,
-                  color: Colors.blue,
-                playSound: true,
-                icon: "@mipmap/ic_launcher"
-              )
-            )
-        );
-      }
-    });
+    final firebaseMessaging = FCM();
+    firebaseMessaging.setNotifications();
 
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message){
-      print('A new onMessageOpenedApp event was published.');
-      RemoteNotification? notification=message.notification;
-      AndroidNotification? android=message.notification!.android;
-      if(notification !=null && android!=null){
-        showDialog(
-            context: context,
-            builder: (_){
-              return AlertDialog(
-                title: Text("${notification.title}"),
-                content: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text("${notification.body}"),
-                    ],
-                  ),
-                ),
-              );
-            }
-        );
-      }
-    });
+    firebaseMessaging.streamCtlr.stream.listen(_changeData);
+    firebaseMessaging.bodyCtlr.stream.listen(_changeBody);
+    firebaseMessaging.titleCtlr.stream.listen(_changeTitle);
+
+    super.initState();
   }
+
+  _changeData(String msg) => setState(() => notificationData = msg);
+  _changeBody(String msg) => setState(() => notificationBody = msg);
+  _changeTitle(String msg) => setState(() => notificationTitle = msg);
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.title),
-      ),
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text(
-              'You have pushed the button this many times:',
+          children: [
+            Text(
+              "Flutter Notification Details",
+              style: Theme.of(context).textTheme.headline4,
+            ),
+            const SizedBox(height: 20),
+            Text(
+              "Notification Title:-  $notificationTitle",
+              style: Theme.of(context).textTheme.headline6,
             ),
             Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headline4,
+              "Notification Body:-  $notificationBody",
+              style: Theme.of(context).textTheme.headline6,
             ),
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: showNotification,
-        tooltip: 'Show Notification',
-        child: const Icon(Icons.notifications_active),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
   }
 }
